@@ -8,9 +8,4 @@ alias tuxsay="cowsay -f tux 'neovim is the best'"
 alias cd='zoxide'
 alias ..='zoxide ..'
 
-if ! tmux has-session 2>/dev/null; then
-    tmux
-else
-  tmux attach-session -t 0 || tmux attach
-fi
-
+[ -z "$TMUX"  ] && { tmux attach || exec tmux new-session && exit;}
