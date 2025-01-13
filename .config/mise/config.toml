@@ -1,0 +1,12 @@
+[tools]
+bun = "latest"
+dotnet = "latest"
+go = "latest"
+java = "23"
+node = "latest"
+"npm:markdownlint" = "latest"
+pnpm = "latest"
+rust = "latest"
+yarn = "latest"
+zig = "latest"
+zls = "latest"
