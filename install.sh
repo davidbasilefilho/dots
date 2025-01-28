@@ -108,5 +108,6 @@ fi
 
 echo "Update shell..."
 . ~/.bashrc
+set +e
 
 echo "Installation complete!"
