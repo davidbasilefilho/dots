@@ -8,14 +8,12 @@ if ! command -v brew &>/dev/null; then
   echo "Installing Homebrew..."
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   echo "Update shell..."
-  echo >>/home/codespace/.bashrc
-  echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >>/home/codespace/.bashrc
   eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 else
   echo "Homebrew is already installed."
 fi
 
-# Symlink zshrc
+# Symlink bashrc
 echo "Creating symlink for bash config..."
 rm -rf ~/.bashrc
 ln -sf "$(pwd)/.bashrc" ~/.bashrc
@@ -93,7 +91,7 @@ fi
 mkdir -p ~/.config/mise
 if [ ! -L ~/.config/mise/config.toml ]; then
   echo "Creating symlink for Mise config..."
-  mise trust "$(pwd)"
+  mise trust "$(pwd)/mise"
   ln -sf "$(pwd)/mise/config.toml" ~/.config/mise/config.toml
 else
   echo "Mise config symlink already exists."
