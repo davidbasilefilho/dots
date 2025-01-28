@@ -16,10 +16,9 @@ else
 fi
 
 # Symlink zshrc
-echo "Creating symlink for zsh config..."
-rm -rf ~/.zshrc
-ln -sf "$(pwd)/.zshrc" ~/.zshrc
-. ~/.zshrc
+echo "Creating symlink for bash config..."
+rm -rf ~/.bashrc
+ln -sf "$(pwd)/.bashrc" ~/.bashrc
 
 # Update Homebrew
 echo "Updating Homebrew..."
