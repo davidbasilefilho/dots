@@ -7,6 +7,8 @@ set -e
 if ! command -v brew &>/dev/null; then
   echo "Installing Homebrew..."
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+  echo "Update shell..."
+  . ~/.bashrc
 else
   echo "Homebrew is already installed."
 fi
@@ -104,5 +106,8 @@ if [ ! -L ~/.config/lazygit/config.yml ]; then
 else
   echo "Lazygit config symlink already exists."
 fi
+
+echo "Update shell..."
+. ~/.bashrc
 
 echo "Installation complete!"
