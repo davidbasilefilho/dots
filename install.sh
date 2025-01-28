@@ -1,8 +1,5 @@
 #!/bin/bash
 
-# Exit immediately if a command exits with a non-zero status
-set -e
-
 # Install Homebrew
 if ! command -v brew &>/dev/null; then
   echo "Installing Homebrew..."
@@ -108,6 +105,5 @@ fi
 
 echo "Update shell..."
 . ~/.bashrc
-set +e
 
 echo "Installation complete!"
