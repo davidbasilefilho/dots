@@ -8,7 +8,9 @@ if ! command -v brew &>/dev/null; then
   echo "Installing Homebrew..."
   /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
   echo "Update shell..."
-  . ~/.bashrc
+  echo >>/home/codespace/.bashrc
+  echo 'eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"' >>/home/codespace/.bashrc
+  eval "$(/home/linuxbrew/.linuxbrew/bin/brew shellenv)"
 else
   echo "Homebrew is already installed."
 fi
