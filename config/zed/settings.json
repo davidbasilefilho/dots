@@ -1,0 +1,84 @@
+// Zed settings
+//
+// For information on how to configure Zed, see the Zed
+// documentation: https://zed.dev/docs/configuring-zed
+//
+// To see all of Zed's default settings without changing your
+// custom settings, run `zed: open default settings` from the
+// command palette (cmd-shift-p / ctrl-shift-p)
+{
+  "agent": {
+    "default_model": {
+      "provider": "copilot_chat",
+      "model": "grok-code-fast-1"
+    },
+    "model_parameters": []
+  },
+  "context_servers": {
+    "context7": {
+      "source": "custom",
+      "command": "bunx",
+      "args": ["@upstash/context7-mcp"]
+    },
+    "serena": {
+      "source": "custom",
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server"
+      ]
+    },
+    "sequential-thinking": {
+      "source": "custom",
+      "command": "bunx",
+      "args": ["@modelcontextprotocol/server-sequential-thinking"]
+    },
+    "memory": {
+      "source": "custom",
+      "command": "bunx",
+      "args": ["@modelcontextprotocol/server-memory"]
+    },
+    "mcp-server-git": {
+      "source": "custom",
+      "command": "bunx",
+      "args": ["mcp-server-git"]
+    },
+    "fetch": {
+      "source": "custom",
+      "command": "uvx",
+      "args": ["mcp-server-fetch"]
+    }
+  },
+  "disable_ai": false,
+  "use_smartcase_search": true,
+  "auto_update": false,
+  "telemetry": {
+    "diagnostics": false,
+    "metrics": false
+  },
+  "icon_theme": {
+    "mode": "system",
+    "light": "Zed (Default)",
+    "dark": "Zed (Default)"
+  },
+  "buffer_font_features": {
+    "calt": true
+  },
+  "edit_predictions": {
+    "mode": "eager"
+  },
+  "show_edit_predictions": true,
+  "vim_mode": true,
+  "ui_font_size": 16,
+  "buffer_font_size": 15,
+  "theme": {
+    "mode": "system",
+    "light": "One Light",
+    "dark": "One Dark"
+  },
+  "features": {
+    "edit_prediction_provider": "copilot"
+  }
+}
