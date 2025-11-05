@@ -80,5 +80,10 @@
   },
   "features": {
     "edit_prediction_provider": "copilot"
+  },
+  "auto_install_extensions": {
+    "html": true,
+    "php": true,
+    "biome": true
   }
 }

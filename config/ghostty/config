@@ -1,0 +1,25 @@
+font-family=JetBrainsMono Nerd Font
+window-padding-x=8
+window-padding-y=8
+theme=TokyoNight Night
+window-decoration=server
+gtk-single-instance=true
+
+keybind=ctrl+s>r=reload_config
+
+keybind=ctrl+s>h=new_split:left
+keybind=ctrl+s>l=new_split:right
+keybind=ctrl+s>j=new_split:down
+keybind=ctrl+s>k=new_split:up
+
+keybind=ctrl+h=goto_split:left
+keybind=ctrl+l=goto_split:right
+keybind=ctrl+j=goto_split:down
+keybind=ctrl+k=goto_split:up
+
+keybind=ctrl+alt+k=resize_split:up,30
+keybind=ctrl+alt+j=resize_split:down,30
+keybind=ctrl+alt+h=resize_split:left,30
+keybind=ctrl+alt+l=resize_split:right,30
+
+keybind=ctrl+s>z=toggle_split_zoom

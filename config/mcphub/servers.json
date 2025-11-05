@@ -1,1 +1,37 @@
-{"mcpServers":{}}
+{
+  "mcpServers": {
+    "context7": {
+      "command": "bunx",
+      "args": [
+        "@upstash/context7-mcp"
+      ]
+    },
+    "serena": {
+      "command": "uvx",
+      "args": [
+        "--from",
+        "git+https://github.com/oraios/serena",
+        "serena",
+        "start-mcp-server"
+      ]
+    },
+    "fetch": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-fetch"
+      ]
+    },
+    "git": {
+      "command": "uvx",
+      "args": [
+        "mcp-server-git"
+      ]
+    },
+    "memory": {
+      "command": "bunx",
+      "args": [
+        "@modelcontextprotocol/server-memory"
+      ]
+    }
+  }
+}

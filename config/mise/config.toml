@@ -1,0 +1,18 @@
+[tools]
+bun = "latest"
+cmake = "latest"
+node = "latest"
+python = "latest"
+rust = "latest"
+uv = "latest"
+zig = "latest"
+dotnet = "latest"
+go = "latest"
+
+[settings]
+
+[settings.npm]
+bun = true
+
+[settings.pipx]
+uvx = true
