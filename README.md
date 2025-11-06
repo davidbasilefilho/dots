@@ -24,6 +24,7 @@ bash -c "$(wget -qO- https://raw.githubusercontent.com/davidbasilefilho/dots/ref
 
 ```bash
 curl -fsSL -o /tmp/install.sh https://raw.githubusercontent.com/davidbasilefilho/dots/refs/heads/main/install.sh
+less /tmp/install.sh
 bash /tmp/install.sh
 ```
 

@@ -1,77 +1,61 @@
 #!/usr/bin/env bash
-# install.sh - Post-installation script for Arch-based distros
-# - Adds CachyOS and Chaotic AUR repositories
-# - Installs base tools, yay, oh-my-zsh, and requested packages
-# - Enables services
-# - Deploys dotfiles from repo: config/* -> ~/.config, .zshrc -> ~/.zshrc
-
+# dots/install.sh - Thin wrapper installer
+# - Clones the repo to a temporary directory (or fetches an archive if git missing)
+# - Runs `setup.sh` from the clone
+# - Optionally moves the clone to a permanent location (default: ~/dots)
+#
+# Usage:
+#   curl -fsSL https://raw.githubusercontent.com/davidbasilefilho/dots/main/install.sh | bash
+#
+# Options:
+#   --yes               : non-interactive, accept prompts (keep repo by default)
+#   --keep-dir <path>   : if provided, use this path as the destination to keep the repo
+#   --ref <ref>         : Git ref (branch/tag/commit) to checkout. Default: main
+#   --archive-only      : if git is unavailable, always use the tarball fetch fallback
+#
+# Notes:
+# - Do NOT run this wrapper as root. The underlying `setup.sh` will prompt for sudo where needed.
+# - The wrapper will try to use `git` first; if not present and curl is available it will fetch
+#   a tarball from GitHub and extract it.
+# - After a successful run of setup.sh you will be prompted whether to keep the cloned repo.
+#   With --yes the repo will be kept at the provided --keep-dir (or ~/dots if not provided).
+#
 set -Eeuo pipefail
 
-# --------------- utilities ---------------
+REPO_URL="https://github.com/davidbasilefilho/dots"
+GITHUB_RAW="https://raw.githubusercontent.com/davidbasilefilho/dots"
+DEFAULT_REF="main"
+KEEP_DIR_DEFAULT="$HOME/dots"
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-WORKDIR="$(mktemp -d -t arch-postinstall-XXXXXX)"
-trap 'rm -rf "$WORKDIR"' EXIT
+# CLI flags
+OPT_YES=0
+OPT_KEEP_DIR=""
+OPT_REF="$DEFAULT_REF"
+OPT_ARCHIVE_ONLY=0
 
-bold() { printf "\033[1m%s\033[0m\n" "$*"; }
-info() { printf "[INFO] %s\n" "$*"; }
-warn() { printf "[WARN] %s\n" "$*" >&2; }
-err() { printf "[ERROR] %s\n" "$*" >&2; }
-die() { err "$*"; exit 1; }
+print() { printf "%s\n" "$*"; }
+bold() { printf "\\033[1m%s\\033[0m\\n" "$*"; }
+info() { printf "[INFO] %s\\n" "$*"; }
+warn() { printf "[WARN] %s\\n" "$*" >&2; }
+err() { printf "[ERROR] %s\\n" "$*" >&2; }
 
-have_cmd() { command -v "$1" >/dev/null 2>&1; }
+usage() {
+  cat <<EOF
+Usage: install.sh [--yes] [--keep-dir <path>] [--ref <git-ref>] [--archive-only]
 
-# Source package helper if present (provides functions like packages_base/packages_extra)
-if [ -f "$SCRIPT_DIR/package-lists/packages.sh" ]; then
-  # shellcheck source=/dev/null
-  source "$SCRIPT_DIR/package-lists/packages.sh"
-else
-  warn "Package helper not found: $SCRIPT_DIR/package-lists/packages.sh"
-fi
+Options:
+  --yes               Non-interactive; accept prompts and keep the repo by default.
+  --keep-dir <path>   Directory to move the cloned repo to if user chooses to keep it.
+  --ref <ref>         Git ref (branch/tag/commit) to check out. Default: ${DEFAULT_REF}
+  --archive-only      Use tarball download fallback instead of git (even if git present).
+  -h, --help          Show this help and exit.
 
-require_arch() {
-  if ! [ -f /etc/arch-release ]; then
-    die "This script targets Arch-based distros only."
-  fi
+This script clones the repository, runs 'setup.sh' from the clone, then optionally keeps
+or removes the cloned repo. It's designed to be used as a short remote installer.
+EOF
 }
 
-require_sudo() {
-  if ! have_cmd sudo; then
-    die "sudo is required. Install and configure sudo, then re-run."
-  fi
-  if ! sudo -n true 2>/dev/null; then
-    bold "Elevated privileges are required. You may be prompted by sudo."
-    sudo -v
-    # Keep-alive: update existing sudo time stamp until script ends.
-    while true; do sleep 60; sudo -n true; kill -0 "$$" || exit; done 2>/dev/null &
-  fi
-}
-
-enable_service() {
-  local unit="$1"
-  if systemctl list-unit-files | grep -q "^${unit}\b"; then
-    info "Enabling and starting ${unit}"
-    sudo systemctl enable --now "$unit" || warn "Failed to enable ${unit} (continuing)"
-  else
-    warn "Systemd unit ${unit} not found; skipping"
-  fi
-}
-
-append_once() {
-  # Append block to file if the block's header (first non-empty line) isn't already present.
-  local file="$1"
-  shift
-  local content="$*"
-  local header
-  header="$(printf "%s" "$content" | sed -n '/[^[:space:]]/p' | head -n1)"
-  if sudo test -f "$file" && sudo grep -qF "$header" "$file"; then
-    info "Block already present in $file: $header"
-  else
-    info "Appending block to $file: $header"
-    printf "%s\n" "$content" | sudo tee -a "$file" >/dev/null
-  fi
-}
-
+# Simple prompt helper
 ask_yes_no() {
   # ask_yes_no "Question?" default_answer
   # returns 0 for yes, 1 for no
@@ -79,14 +63,15 @@ ask_yes_no() {
   prompt="$1"
   default="${2:-n}"
 
-  # If stdin is not a terminal, treat as "no" to avoid blocking in non-interactive runs
+  # Non-interactive -> follow default
   if [ ! -t 0 ]; then
-    info "Non-interactive shell detected; answering 'no' to: $prompt"
+    if [ "$default" = "y" ] || [ "$default" = "Y" ]; then
+      return 0
+    fi
     return 1
   fi
 
   while true; do
-    # Show default in prompt
     if [ "$default" = "y" ] || [ "$default" = "Y" ]; then
       read -r -p "$prompt [Y/n]: " reply || return 1
       reply="${reply:-y}"
@@ -98,368 +83,217 @@ ask_yes_no() {
     case "$reply" in
       [Yy]|[Yy][Ee][Ss]) return 0 ;;
       [Nn]|[Nn][Oo]) return 1 ;;
-      *) echo "Please answer y or n." ;;
+      *) printf "Please answer y or n.\\n" ;;
     esac
   done
 }
 
-# --------------- shell / replacement functions ---------------
+# Parse args
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --yes) OPT_YES=1; shift ;;
+    --keep-dir) OPT_KEEP_DIR="$2"; shift 2 ;;
+    --ref) OPT_REF="$2"; shift 2 ;;
+    --archive-only) OPT_ARCHIVE_ONLY=1; shift ;;
+    -h|--help) usage; exit 0 ;;
+    --) shift; break ;;
+    *) warn "Unknown argument: $1"; usage; exit 2 ;;
+  esac
+done
 
-change_shells_to_zsh() {
-  bold "Changing default shells to zsh"
+if [ -z "$OPT_KEEP_DIR" ]; then
+  OPT_KEEP_DIR="$KEEP_DIR_DEFAULT"
+fi
 
-  local zsh_path invoking_user
-  # Prefer an explicit zsh path if available
-  if have_cmd zsh; then
-    zsh_path="$(command -v zsh)"
-  else
-    zsh_path="/usr/bin/zsh"
+if [ "$(id -u)" -eq 0 ]; then
+  warn "Running this wrapper as root is not recommended. The setup script will use sudo where necessary."
+fi
+
+# Make a temporary working directory
+WORKDIR="$(mktemp -d -t dots-install-XXXXXX)"
+cleanup() {
+  # Only remove WORKDIR if it's still present and not the same as the kept dir
+  if [ -n "${WORKDIR:-}" ] && [ -d "$WORKDIR" ]; then
+    rm -rf "$WORKDIR"
+  fi
+}
+trap cleanup EXIT
+
+CLONE_DIR="$WORKDIR/dots"
+
+# Ensure we have at least one method to obtain repo
+have_git=0
+have_curl=0
+if command -v git >/dev/null 2>&1; then
+  have_git=1
+fi
+if command -v curl >/dev/null 2>&1; then
+  have_curl=1
+fi
+
+fetch_with_git() {
+  info "Cloning ${REPO_URL} (ref: ${OPT_REF}) to temporary directory..."
+  # Attempt shallow clone of the requested ref. If ref is a commit hash, --depth=1 with --branch may fail;
+  # in that case do a normal clone as fallback.
+  if git clone --depth 1 --branch "${OPT_REF}" "${REPO_URL}" "$CLONE_DIR" 2>/dev/null; then
+    info "Repository cloned (shallow) to $CLONE_DIR"
+    return 0
+  fi
+  info "Shallow clone failed; trying full clone and checkout..."
+  if git clone "${REPO_URL}" "$CLONE_DIR"; then
+    (
+      cd "$CLONE_DIR"
+      if git checkout "${OPT_REF}" >/dev/null 2>&1; then
+        info "Checked out ${OPT_REF}"
+      else
+        warn "Could not checkout ${OPT_REF}; repository left on default branch."
+      fi
+    )
+    return 0
+  fi
+  return 1
+}
+
+fetch_with_archive() {
+  if [ "$have_curl" -ne 1 ]; then
+    return 1
+  fi
+  info "Downloading repository archive for ref: ${OPT_REF}"
+  # GitHub archive URL: https://github.com/<user>/<repo>/archive/<ref>.tar.gz
+  ARCHIVE_URL="${REPO_URL}/archive/${OPT_REF}.tar.gz"
+  ARCHIVE="$WORKDIR/repo.tar.gz"
+  if ! curl -fsSL -o "$ARCHIVE" "$ARCHIVE_URL"; then
+    warn "Failed to download archive from $ARCHIVE_URL"
+    return 1
+  fi
+  mkdir -p "$CLONE_DIR"
+  tar -xzf "$ARCHIVE" -C "$WORKDIR"
+  # The archive extracts to something like dots-<ref> or <repo>-<ref>
+  # Find the first directory under WORKDIR that looks like the repo
+  extracted="$(find "$WORKDIR" -maxdepth 1 -type d -name "$(basename $REPO_URL)-*" | head -n1 || true)"
+  if [ -z "$extracted" ]; then
+    # try a more general heuristic
+    extracted="$(find "$WORKDIR" -maxdepth 1 -type d ! -name "$(basename $WORKDIR)" | head -n1 || true)"
+  fi
+  if [ -z "$extracted" ]; then
+    warn "Could not locate extracted repository directory"
+    return 1
+  fi
+  mv "$extracted" "$CLONE_DIR"
+  info "Repository archive extracted to $CLONE_DIR"
+  return 0
+}
+
+obtain_repository() {
+  if [ "$OPT_ARCHIVE_ONLY" -eq 1 ]; then
+    if fetch_with_archive; then
+      return 0
+    fi
+    return 1
   fi
 
-  if [ ! -x "$zsh_path" ]; then
-    warn "zsh not found at $zsh_path. Skipping shell changes."
-    return
+  if [ "$have_git" -eq 1 ]; then
+    if fetch_with_git; then
+      return 0
+    fi
+    warn "git clone method failed; attempting archive download fallback..."
   fi
 
-  # Ensure path is listed in /etc/shells
-  if ! sudo grep -qFx "$zsh_path" /etc/shells 2>/dev/null; then
-    info "Adding $zsh_path to /etc/shells"
-    printf "%s\n" "$zsh_path" | sudo tee -a /etc/shells >/dev/null
+  if [ "$have_curl" -eq 1 ]; then
+    if fetch_with_archive; then
+      return 0
+    fi
+    warn "Archive download fallback failed."
   fi
 
-  # If the script was invoked with sudo, prefer SUDO_USER as the "real" user
-  invoking_user="${SUDO_USER:-${USER:-}}"
-  if [ -z "$invoking_user" ]; then
-    warn "Could not determine non-root user to change shell for; skipping user shell change."
-  else
-    info "Setting shell for user '$invoking_user' to $zsh_path"
-    if sudo chsh -s "$zsh_path" "$invoking_user"; then
-      info "User shell changed for $invoking_user"
+  return 1
+}
+
+run_setup() {
+  # Ensure setup.sh exists and is executable
+  if [ ! -f "$CLONE_DIR/setup.sh" ]; then
+    err "setup.sh not found in the cloned repository ($CLONE_DIR/setup.sh). Aborting."
+    return 2
+  fi
+
+  info "Running setup.sh from the cloned repository. You may be prompted for sudo by that script."
+  # Run setup.sh with any args passed to this installer after options.
+  # Use bash to ensure a consistent shell.
+  (cd "$CLONE_DIR" && bash setup.sh)
+  return $?
+}
+
+move_repo_to_keepdir() {
+  local dest="$1"
+  if [ -e "$dest" ]; then
+    warn "Destination $dest already exists."
+    if [ "$OPT_YES" -eq 1 ]; then
+      info "--yes specified; removing existing $dest"
+      rm -rf "$dest"
     else
-      warn "Failed to change shell for $invoking_user (you may need to run chsh manually)"
+      if ask_yes_no "Destination $dest exists. Overwrite it?" "n"; then
+        rm -rf "$dest"
+      else
+        warn "User declined to overwrite $dest. Aborting move; repository remains at $CLONE_DIR"
+        return 1
+      fi
     fi
   fi
 
-  info "Setting shell for root to $zsh_path"
-  if sudo chsh -s "$zsh_path" root; then
-    info "Root shell changed to $zsh_path"
-  else
-    warn "Failed to change root shell (you may need to update /etc/passwd manually)"
-  fi
-
-  bold "Shell changes complete. Note: you may need to log out and back in for changes to take effect."
+  mv "$CLONE_DIR" "$dest"
+  # Prevent trap cleanup from deleting the moved dir
+  trap - EXIT
+  info "Repository moved to: $dest"
+  return 0
 }
-
-replace_foreign_with_repo_bins() {
-  # Attempt to replace "foreign" (AUR/locally-built) packages with repository-provided packages
-  bold "Option: replace foreign (AUR) packages with repo binaries (e.g. Chaotic if available)"
-
-  # Gather foreign packages (those not found in sync DBs)
-  local foreign
-  foreign="$(pacman -Qmq || true)"
-  if [ -z "$foreign" ]; then
-    info "No foreign packages detected (pacman -Qm returned nothing)."
-    return
-  fi
-
-  info "Foreign packages detected:"
-  printf "  %s\n" $foreign
-
-  if ask_yes_no "Attempt to reinstall/replace these packages from repos if available?" "n"; then
-    info "Attempting to install/replace foreign packages from repos (if available)."
-    # Allow pacman to fail on packages that are not in any repo; don't let the script exit due to set -e
-    set +e
-    sudo pacman -S --needed --noconfirm $foreign
-    local rc=$?
-    set -e
-    if [ $rc -ne 0 ]; then
-      warn "Some foreign packages could not be installed from repos. Check pacman output above for details."
-    else
-      info "Attempted replacement of foreign packages completed."
-    fi
-  else
-    info "Skipping replacement of foreign packages."
-  fi
-}
-
-replace_installed_with_cachyos() {
-  # If cachyos repo exists, optionally reinstall packages present in cachyos to prefer their builds
-  if ! sudo grep -qi "^\[cachyos" /etc/pacman.conf 2>/dev/null; then
-    info "CachyOS repo not configured; skipping CachyOS replacements."
-    return
-  fi
-
-  bold "Option: prefer CachyOS versions of packages when available"
-
-  # Build lists to compute intersection of installed packages and what's available in cachyos
-  local installed_file cachy_file intersect_file packages_to_replace
-
-  installed_file="$WORKDIR/installed.txt"
-  cachy_file="$WORKDIR/cachy.txt"
-  intersect_file="$WORKDIR/intersect.txt"
-
-  pacman -Qq | sort > "$installed_file"
-  # pacman -Sl may require sudo for some setups; run it and ignore errors
-  sudo pacman -Sl cachyos 2>/dev/null | awk '{print $2}' | sort > "$cachy_file" || true
-
-  if [ ! -s "$cachy_file" ]; then
-    warn "No packages listed in CachyOS mirror index or unable to query cachyos repo; skipping."
-    return
-  fi
-
-  comm -12 "$installed_file" "$cachy_file" > "$intersect_file" || true
-
-  if [ ! -s "$intersect_file" ]; then
-    info "No installed packages are available in the CachyOS repo (intersection empty)."
-    return
-  fi
-
-  packages_to_replace="$(tr '\n' ' ' < "$intersect_file" | sed -e 's/[[:space:]]*$//')"
-  info "Packages that could be replaced with CachyOS builds:"
-  printf "  %s\n" $(cat "$intersect_file")
-
-  if ask_yes_no "Reinstall the above packages to prefer CachyOS builds? This may replace your current packages." "n"; then
-    info "Reinstalling packages from CachyOS where available."
-    set +e
-    # Use pacman to reinstall; packages present in cachyos will be taken from that repo according to pacman order
-    sudo pacman -S --needed --noconfirm $packages_to_replace
-    local rc=$?
-    set -e
-    if [ $rc -ne 0 ]; then
-      warn "Some CachyOS replacements failed; inspect pacman output for details."
-    else
-      info "CachyOS replacements attempted."
-    fi
-  else
-    info "Skipping CachyOS replacements."
-  fi
-}
-
-# --------------- basile.nvim install function ---------------
-
-install_basile_nvim() {
-  bold "Installing basile.nvim configuration for Neovim"
-
-  local repo_url="https://github.com/davidbasilefilho/basile.nvim.git"
-  local user_dest="$HOME/.config/nvim"
-
-  if ! have_cmd git; then
-    warn "git not found. Installing basile.nvim requires git. Skipping basile.nvim installation."
-    return
-  fi
-
-  # Remove existing user nvim config and clone
-  if [ -d "$user_dest" ]; then
-    info "Removing existing $user_dest"
-    rm -rf "$user_dest"
-  fi
-
-  info "Cloning $repo_url -> $user_dest"
-  if git clone --depth 1 "$repo_url" "$user_dest"; then
-    info "Successfully cloned basile.nvim to $user_dest"
-  else
-    warn "Failed to clone basile.nvim to $user_dest"
-  fi
-
-  # Optionally install for root
-  if ask_yes_no "Would you like to apply the same basile.nvim config to root (/root/.config/nvim) as well?" "n"; then
-    info "Installing basile.nvim for root"
-    # Ensure parent directory exists, remove previous config, and clone as root
-    sudo mkdir -p /root/.config
-    sudo rm -rf /root/.config/nvim
-    # Use sudo git clone to ensure ownership and permissions are correct for root
-    if sudo git clone --depth 1 "$repo_url" /root/.config/nvim; then
-      info "Successfully cloned basile.nvim to /root/.config/nvim"
-    else
-      warn "Failed to clone basile.nvim for root"
-    fi
-  else
-    info "Skipping root neovim config install"
-  fi
-}
-
-# --------------- steps ---------------
-
-step_1_system_update_and_base_tools() {
-  bold "Step 1: Update system and install base tools"
-  info "Refreshing package databases and updating system"
-  sudo pacman -Syu --noconfirm
-
-  # Load base package list from package helper if available
-  local base_pkgs=()
-  if declare -f packages_base >/dev/null 2>&1; then
-    mapfile -t base_pkgs < <(packages_base)
-  else
-    base_pkgs=(neovim ripgrep fd fzf zsh curl rsync reflector)
-    warn "packages_base() not found; falling back to embedded list."
-  fi
-
-  info "Installing base packages: ${base_pkgs[*]}"
-  sudo pacman -S --needed --noconfirm "${base_pkgs[@]}"
-
-  # Enable reflector units (try common variants)
-  enable_service "reflector.service"
-  enable_service "reflector.timer"
-}
-
-step_2_add_cachyos_repo() {
-  bold "Step 2: Add CachyOS repository"
-  if sudo grep -qi "^\[cachyos" /etc/pacman.conf; then
-    info "CachyOS repository already configured; skipping"
-    return
-  fi
-
-  info "Downloading CachyOS repo helper"
-  (
-    cd "$WORKDIR"
-    curl -fsSL https://mirror.cachyos.org/cachyos-repo.tar.xz -o cachyos-repo.tar.xz
-    tar xvf cachyos-repo.tar.xz >/dev/null
-    cd cachyos-repo
-    info "Running cachyos-repo.sh"
-    sudo ./cachyos-repo.sh
-  )
-}
-
-step_3_add_chaotic_aur_repo() {
-  bold "Step 3: Add Chaotic AUR repository"
-  if sudo grep -qi "^\[chaotic-aur" /etc/pacman.conf; then
-    info "Chaotic AUR already configured; ensuring keyring and mirrorlist are installed"
-  else
-    info "Importing Chaotic AUR keys"
-    sudo pacman-key --recv-key 3056513887B78AEB --keyserver keyserver.ubuntu.com
-    sudo pacman-key --lsign-key 3056513887B78AEB
-
-    info "Installing chaotic-aur keyring and mirrorlist"
-    sudo pacman -U --noconfirm 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-keyring.pkg.tar.zst'
-    sudo pacman -U --noconfirm 'https://cdn-mirror.chaotic.cx/chaotic-aur/chaotic-mirrorlist.pkg.tar.zst'
-
-    append_once /etc/pacman.conf "
-[chaotic-aur]
-Include = /etc/pacman.d/chaotic-mirrorlist
-"
-  fi
-
-  info "Syncing package databases and upgrading system (will take a while)"
-  sudo pacman -Syu --noconfirm
-}
-
-step_4_install_yay() {
-  bold "Step 4: Install yay (AUR helper)"
-  if have_cmd yay; then
-    info "yay already installed; skipping"
-    return
-  fi
-
-  info "Installing prerequisites for building AUR packages"
-  sudo pacman -S --needed --noconfirm git base-devel
-
-  info "Cloning yay-bin and building"
-  (
-    cd "$WORKDIR"
-    git clone https://aur.archlinux.org/yay-bin.git
-    cd yay-bin
-    makepkg -si --noconfirm
-  )
-}
-
-step_5_install_oh_my_zsh() {
-  bold "Step 5: Install Oh My Zsh"
-  if [ -d "$HOME/.oh-my-zsh" ]; then
-    info "Oh My Zsh already present; skipping installation"
-    return
-  fi
-
-  # Run non-interactively to avoid shell changing mid-script
-  info "Running Oh My Zsh installer (non-interactive)"
-  RUNZSH=no CHSH=no KEEP_ZSHRC=yes sh -c "$(curl -fsSL https://raw.githubusercontent.com/ohmyzsh/ohmyzsh/master/tools/install.sh)"
-}
-
-step_6_install_packages() {
-  bold "Step 6: Install requested packages via yay"
-  if ! have_cmd yay; then
-    die "yay not found; Step 4 should have installed it."
-  fi
-
-  # Load extra package list from package helper if available
-  local pkgs=()
-  if declare -f packages_extra >/dev/null 2>&1; then
-    mapfile -t pkgs < <(packages_extra)
-  else
-    pkgs=(zsh-syntax-highlighting zsh-autosuggestions zsh-completions mise zoxide starship eza github-cli vim unzip zed opencode-bin ttf-jetbrains-mono-nerd ttf-zed-mono-nerd otf-geist-mono-nerd stremio re2c gd pipes-rs pfetch-rs-bin ghostty brave-bin flatpak fastfetch easyeffects lsp-plugins-lv2 lsp-plugins-vst3 zam-plugins-lv2 mda.lv2 cachyos-hello cachyos-settings cairo calf docker pango lib32-pango lazygit lazydocker ladspa gemini-cli jre21-openjdk-headless fmt cachyos-gaming-meta bpftune-git brave-bin btop ardour ananicy-cpp adwaita-fonts openai-codex)
-    warn "packages_extra() not found; falling back to embedded list."
-  fi
-
-  info "Installing packages: ${pkgs[*]}"
-  yay -S --needed --noconfirm "${pkgs[@]}"
-
-  # Enable docker service as requested
-  enable_service "docker.service"
-}
-
-step_7_deploy_dotfiles() {
-  bold "Step 7: Deploy dotfiles"
-
-  # Copy everything inside config -> ~/.config
-  local src_config="${SCRIPT_DIR}/config"
-  if [ -d "$src_config" ]; then
-    mkdir -p "$HOME/.config"
-    info "Syncing ${src_config}/ -> $HOME/.config/"
-    # Ensure rsync is installed from Step 1
-    rsync -avh "${src_config}/" "$HOME/.config/"
-  else
-    warn "No config directory found at ${src_config}; skipping"
-  fi
-
-  # Copy .zshrc -> ~/.zshrc
-  local src_zshrc="${SCRIPT_DIR}/.zshrc"
-  if [ -f "$src_zshrc" ]; then
-    info "Installing ${src_zshrc} -> $HOME/.zshrc"
-    install -m 0644 "$src_zshrc" "$HOME/.zshrc"
-  else
-    warn "No .zshrc found at ${src_zshrc}; skipping"
-  fi
-}
-
-# --------------- main ---------------
 
 main() {
-  require_arch
-  require_sudo
+  bold "dots thin installer"
+  info "Temporary working directory: $WORKDIR"
 
-  step_1_system_update_and_base_tools
-  step_2_add_cachyos_repo
-  step_3_add_chaotic_aur_repo
-  step_4_install_yay
-  step_5_install_oh_my_zsh
-  step_6_install_packages
-  step_7_deploy_dotfiles
-
-  # After deploying dotfiles, install basile.nvim for the user and optionally root
-  install_basile_nvim
-
-  # After basile.nvim, change shells to zsh for root and the invoking user
-  change_shells_to_zsh
-
-  # Ask user about replacing foreign packages with repo-provided binaries (Chaotic)
-  if ask_yes_no "Would you like to attempt to replace foreign (AUR/local) packages with repository-provided binaries (e.g. from Chaotic) where available?" "n"; then
-    replace_foreign_with_repo_bins
-  else
-    info "Skipping replacement of foreign packages."
+  if ! obtain_repository; then
+    err "Failed to obtain repository (git clone or archive download). Ensure git or curl is installed and network access is available."
+    exit 1
   fi
 
-  # Ask about preferring CachyOS builds (if repo present)
-  if ask_yes_no "Would you like to attempt to reinstall installed packages available from CachyOS to prefer CachyOS builds? This may replace existing packages." "n"; then
-    replace_installed_with_cachyos
-  else
-    info "Skipping CachyOS preference step."
+  # Run the setup script
+  if ! run_setup; then
+    err "setup.sh failed. The temporary clone remains at: $CLONE_DIR for inspection."
+    # Do not delete the clone so user can inspect; but we will not keep it permanently unless asked.
+    if [ "$OPT_YES" -eq 1 ]; then
+      info "--yes set; keeping repository at $OPT_KEEP_DIR"
+      move_repo_to_keepdir "$OPT_KEEP_DIR" || true
+    else
+      warn "Not moving repository to permanent location. It will be removed on exit unless you set --keep-dir and --yes."
+    fi
+    exit 2
   fi
 
-  # Ask about reboot
-  if ask_yes_no "Would you like to reboot now to apply breaking changes (kernel updates, shell changes, etc.)?" "n"; then
-    bold "Rebooting now..."
-    sudo reboot
+  # setup.sh succeeded
+  if [ "$OPT_YES" -eq 1 ]; then
+    info "--yes specified: keeping repository at $OPT_KEEP_DIR"
+    if move_repo_to_keepdir "$OPT_KEEP_DIR"; then
+      bold "Installation complete. Repository saved at: $OPT_KEEP_DIR"
+      exit 0
+    else
+      warn "Could not move repository to $OPT_KEEP_DIR; leaving temporary clone for inspection: $CLONE_DIR"
+      exit 0
+    fi
+  fi
+
+  # Interactive: ask user whether to keep the clone
+  if ask_yes_no "setup.sh completed successfully. Would you like to keep a copy of the repository at '$OPT_KEEP_DIR' for future use?" "n"; then
+    if move_repo_to_keepdir "$OPT_KEEP_DIR"; then
+      bold "Repository preserved at: $OPT_KEEP_DIR"
+      exit 0
+    else
+      warn "Failed to move repository to $OPT_KEEP_DIR; leaving temporary clone at $CLONE_DIR"
+      exit 0
+    fi
   else
-    bold "All done! Consider restarting your session or rebooting later for all changes to take effect."
+    info "Removing temporary clone..."
+    # cleanup trap will remove WORKDIR
+    exit 0
   fi
 }
 
