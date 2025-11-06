@@ -83,7 +83,7 @@ bash setup.sh          # run the installer from the repo root
 - Updates the system (`pacman -Syu`) and installs base packages (or uses lists from `package-lists/packages.sh`)
 - Optionally configures CachyOS and Chaotic AUR repos
 - Installs `yay` (AUR helper), Oh My Zsh, and requested user packages
-- Deploys dotfiles from `config/` -> `~/.config/` and `.zshrc` -> `~/.zshrc`
+- Deploys dotfiles from `config/` -> `~/.config/` and `.zshconf` -> `~/.zshconf` (the installer will append a safe `source ~/.zshconf` snippet to your existing `~/.zshrc` rather than overwriting it)
 - Installs `basile.nvim` configuration to `~/.config/nvim` (optional root install)
 - Offers to install the CachyOS kernel and will detect NVIDIA GPUs and install the appropriate `linux-cachyos-nvidia*` variant (proprietary/open) based on hardware detection heuristics
 - Offers to change login shell to `zsh` for the invoking user and root

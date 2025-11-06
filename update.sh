@@ -65,13 +65,16 @@ sync_git_repo() {
   fi
 }
 
-# Deploy dotfiles from repo to user home using rsync
+# Deploy dotfiles from repo to user home using rsync and direct installs
+# Also ensure that .zshconf is deployed (if present) and that ~/.zshrc
+# sources it (append-once semantics).
 deploy_dotfiles() {
   if ! have_cmd rsync; then
     warn "rsync not found; skipping dotfiles deployment"
     return
   fi
 
+  # Sync config/ to ~/.config/ as before
   local src_config="$SCRIPT_DIR/config"
   if [ -d "$src_config" ]; then
     mkdir -p "$HOME/.config"
@@ -81,12 +84,71 @@ deploy_dotfiles() {
     warn "No config/ directory at $src_config; skipping config sync"
   fi
 
-  local src_zshrc="$SCRIPT_DIR/.zshrc"
-  if [ -f "$src_zshrc" ]; then
-    info "Installing .zshrc -> $HOME/.zshrc"
-    install -m 0644 "$src_zshrc" "$HOME/.zshrc"
+  # Install common shell dotfiles from repo root (overwrite with install)
+  # This includes .zshrc and .zshconf and other common root dotfiles.
+  local dotfiles=( ".zshrc" ".zshconf" ".zprofile" ".zshenv" ".profile" ".bashrc" )
+  for f in "${dotfiles[@]}"; do
+    local src="$SCRIPT_DIR/$f"
+    if [ -f "$src" ]; then
+      info "Installing $f -> $HOME/$f"
+      install -m 0644 "$src" "$HOME/$f"
+    else
+      info "No $f at $src; skipping"
+    fi
+  done
+
+  # If a .zshconf exists in the repo (or already in $HOME), ensure ~/.zshrc sources it.
+  local src_zshconf="$SCRIPT_DIR/.zshconf"
+  if [ -f "$src_zshconf" ] || [ -f "$HOME/.zshconf" ]; then
+    # Ensure ~/.zshrc exists and append the source line only once.
+    local zshrc="$HOME/.zshrc"
+    local source_line='source $HOME/.zshconf'
+    # Check both unquoted and quoted variants to avoid duplicates
+    if [ -f "$zshrc" ]; then
+      if ! grep -qF "$source_line" "$zshrc" && ! grep -qF 'source "$HOME/.zshconf"' "$zshrc"; then
+        info "Appending 'source \$HOME/.zshconf' to $zshrc"
+        printf '\n# Source repository zsh configuration\n%s\n' "$source_line" >> "$zshrc"
+      else
+        info "$zshrc already sources .zshconf; skipping append"
+      fi
+    else
+      info "$zshrc not present; creating and adding source for .zshconf"
+      printf '# Created by update.sh\n%s\n' "$source_line" > "$zshrc"
+    fi
+  fi
+
+  # If the repository contains a 'home/' directory for additional dotfiles,
+  # mirror it into the user's $HOME (only dotfiles and directories).
+  # This provides a way to ship miscellaneous dotfiles not handled above.
+  local src_home="$SCRIPT_DIR/home"
+  if [ -d "$src_home" ]; then
+    info "Rsyncing home/ -> $HOME/ (dotfiles and directories)"
+    # include dotfiles and directories, exclude other files unless desired
+    rsync -avh --delete --exclude='.git/' --include='*/' --include='.*' --exclude='*' "${src_home}/" "$HOME/"
+  fi
+}
+
+# Update Flatpak packages (user then system if sudo available)
+update_flatpaks() {
+  if ! have_cmd flatpak; then
+    warn "flatpak not found; skipping flatpak updates"
+    return
+  fi
+
+  info "Updating user-installed Flatpak packages"
+  # Update user installs (do not require sudo)
+  if ! flatpak update --user -y; then
+    warn "User flatpak update encountered errors or no user flatpaks present"
+  fi
+
+  # Update system-wide flatpaks if sudo is available
+  if have_cmd sudo; then
+    info "Updating system-wide Flatpak packages (requires sudo)"
+    if ! sudo flatpak update --system -y; then
+      warn "System flatpak update encountered errors or no system flatpaks present"
+    fi
   else
-    warn "No .zshrc at $src_zshrc; skipping .zshrc install"
+    info "sudo not available; skipping system-wide flatpak updates"
   fi
 }
 
@@ -111,6 +173,12 @@ read_package_list_all() {
 # - for missing, detect repo availability via pacman -Si
 # - install repo packages with pacman, AUR packages with yay (if available)
 install_missing_packages() {
+  # If pacman is not available, skip package installation entirely.
+  if ! have_cmd pacman; then
+    warn "pacman not found; skipping package installation step."
+    return
+  fi
+
   # Read package list into array
   local all_pkgs=()
   while IFS= read -r pkg; do
@@ -176,17 +244,24 @@ install_missing_packages() {
 }
 
 main() {
-  require_sudo
+  if have_cmd pacman; then
+    require_sudo
 
-  bold "== System upgrade =="
-  info "Refreshing package databases and upgrading system (pacman -Syu)"
-  sudo pacman -Syu --noconfirm
+    bold "== System upgrade =="
+    info "Refreshing package databases and upgrading system (pacman -Syu)"
+    sudo pacman -Syu --noconfirm
+  else
+    warn "pacman not found; skipping system upgrade and pacman-based package installation"
+  fi
 
   bold "== Git repository sync =="
   sync_git_repo
 
   bold "== Redeploy dotfiles =="
   deploy_dotfiles
+
+  bold "== Update Flatpak packages =="
+  update_flatpaks
 
   bold "== Install missing packages =="
   install_missing_packages

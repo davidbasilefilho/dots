@@ -3,7 +3,7 @@
 # - Adds CachyOS and Chaotic AUR repositories (optional)
 # - Installs base tools, yay, oh-my-zsh, and requested packages
 # - Enables services
-# - Deploys dotfiles from repo: config/* -> ~/.config, .zshrc -> ~/.zshrc
+# - Deploys dotfiles from repo: config/* -> ~/.config, .zshconf -> ~/.zshconf (and appends 'source $HOME/.zshconf' to ~/.zshrc)
 # - Optionally offers to install the CachyOS kernel and a matching NVIDIA package
 #
 # Notes:
@@ -65,6 +65,7 @@ enable_service() {
 
 append_once() {
   # Append block to file if the block's header (first non-empty line) isn't already present.
+  # This variant uses sudo because it is intended for system files (e.g. /etc files).
   local file="$1"
   shift
   local content="$*"
@@ -75,6 +76,23 @@ append_once() {
   else
     info "Appending block to $file: $header"
     printf "%s\n" "$content" | sudo tee -a "$file" >/dev/null
+  fi
+}
+
+# Non-privileged append helper for user files (appends the block only once)
+append_once_user() {
+  # append_once_user <file> <content...>
+  # Appends content to file if the first non-empty line of content isn't present yet.
+  local file="$1"
+  shift
+  local content="$*"
+  local header
+  header="$(printf "%s" "$content" | sed -n '/[^[:space:]]/p' | head -n1)"
+  if [ -f "$file" ] && grep -qF -- "$header" "$file"; then
+    info "Block already present in $file: $header"
+  else
+    info "Appending block to $file: $header"
+    printf "%s\n" "$content" >> "$file"
   fi
 }
 
@@ -529,12 +547,62 @@ step_6_deploy_dotfiles() {
     warn "No config directory found at ${src_config}; skipping"
   fi
 
-  local src_zshrc="${SCRIPT_DIR}/.zshrc"
-  if [ -f "$src_zshrc" ]; then
-    info "Installing ${src_zshrc} -> $HOME/.zshrc"
-    install -m 0644 "$src_zshrc" "$HOME/.zshrc"
+  local src_zshconf="${SCRIPT_DIR}/.zshconf"
+  if [ -f "$src_zshconf" ]; then
+    info "Installing ${src_zshconf} -> $HOME/.zshconf"
+    install -m 0644 "$src_zshconf" "$HOME/.zshconf"
+
+    # Ensure the user's ~/.zshrc sources the repo-provided ~/.zshconf
+    # Append only if the source line is not already present.
+    if [ -f "$HOME/.zshrc" ]; then
+      if ! grep -qF "source \$HOME/.zshconf" "$HOME/.zshrc" 2>/dev/null; then
+        info "Appending 'source \$HOME/.zshconf' to \$HOME/.zshrc"
+        printf "%s\n" "source \$HOME/.zshconf" >> "$HOME/.zshrc"
+      else
+        info "\$HOME/.zshrc already sources \$HOME/.zshconf"
+      fi
+    else
+      # If no ~/.zshrc exists, create one that sources the conf file
+      info "No existing ~/.zshrc found; creating one that sources ~/.zshconf"
+      printf "%s\n" "source \$HOME/.zshconf" > "$HOME/.zshrc"
+      install -m 0644 "$HOME/.zshrc" "$HOME/.zshrc" >/dev/null 2>&1 || true
+    fi
+
+    # RSYNC helper aliases are provided by the scripts themselves (e.g. update.sh).
+    # Do not append rsync helper functions into user files from the installer.
   else
-    warn "No .zshrc found at ${src_zshrc}; skipping"
+    warn "No .zshconf found at ${src_zshconf}; skipping"
+  fi
+}
+
+# Install selected Flatpak applications (called from main)
+step_7_install_flatpaks() {
+  bold "Step 7: Install Flatpak applications"
+
+  if ! have_cmd flatpak; then
+    warn "flatpak not found; skipping Flatpak application installation"
+    return
+  fi
+
+  # Ensure Flathub remote exists
+  if ! flatpak remote-list | grep -q '^flathub\b' 2>/dev/null; then
+    info "Adding Flathub remote"
+    flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo || warn "Failed to add Flathub remote (continuing)"
+  fi
+
+  # Install Bottles (try common Flathub ID first, fallback to literal 'bottles' request)
+  info "Installing Bottles (Flatpak)"
+  if ! flatpak install -y flathub com.usebottles.bottles 2>/dev/null; then
+    # Fallback to literal command requested
+    if ! flatpak install -y bottles 2>/dev/null; then
+      warn "Failed to install 'bottles' via Flatpak"
+    fi
+  fi
+
+  # Install Sober (as requested)
+  info "Installing Sober (Flatpak: org.vinegarhq.Sober)"
+  if ! flatpak install -y flathub org.vinegarhq.Sober 2>/dev/null; then
+    warn "Failed to install org.vinegarhq.Sober via Flatpak"
   fi
 }
 
@@ -550,6 +618,9 @@ main() {
   step_4_install_oh_my_zsh
   step_5_install_packages
   step_6_deploy_dotfiles
+
+  # Install flatpak apps requested by the repository/setup
+  step_7_install_flatpaks
 
   install_basile_nvim
 
