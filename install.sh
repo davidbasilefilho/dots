@@ -21,6 +21,14 @@ die() { err "$*"; exit 1; }
 
 have_cmd() { command -v "$1" >/dev/null 2>&1; }
 
+# Source package helper if present (provides functions like packages_base/packages_extra)
+if [ -f "$SCRIPT_DIR/package-lists/packages.sh" ]; then
+  # shellcheck source=/dev/null
+  source "$SCRIPT_DIR/package-lists/packages.sh"
+else
+  warn "Package helper not found: $SCRIPT_DIR/package-lists/packages.sh"
+fi
+
 require_arch() {
   if ! [ -f /etc/arch-release ]; then
     die "This script targets Arch-based distros only."
@@ -274,10 +282,17 @@ install_basile_nvim() {
 
 step_1_system_update_and_base_tools() {
   bold "Step 1: Update system and install base tools"
-  # Base tools per request
-  local base_pkgs=(neovim ripgrep fd fzf zsh curl rsync reflector)
   info "Refreshing package databases and updating system"
   sudo pacman -Syu --noconfirm
+
+  # Load base package list from package helper if available
+  local base_pkgs=()
+  if declare -f packages_base >/dev/null 2>&1; then
+    mapfile -t base_pkgs < <(packages_base)
+  else
+    base_pkgs=(neovim ripgrep fd fzf zsh curl rsync reflector)
+    warn "packages_base() not found; falling back to embedded list."
+  fi
 
   info "Installing base packages: ${base_pkgs[*]}"
   sudo pacman -S --needed --noconfirm "${base_pkgs[@]}"
@@ -365,18 +380,14 @@ step_6_install_packages() {
     die "yay not found; Step 4 should have installed it."
   fi
 
-  # Packages requested by the user
-  local pkgs=(
-    zsh-syntax-highlighting zsh-autosuggestions zsh-completions
-    mise zoxide starship eza github-cli vim unzip zed opencode-bin
-    ttf-jetbrains-mono-nerd ttf-zed-mono-nerd otf-geist-mono-nerd
-    stremio re2c gd pipes-rs pfetch-rs-bin ghostty brave-bin
-    flatpak fastfetch easyeffects lsp-plugins-lv2 lsp-plugins-vst3
-    zam-plugins-lv2 mda.lv2 cachyos-hello cachyos-settings cairo calf
-    docker pango lib32-pango lazygit lazydocker ladspa gemini-cli
-    jre21-openjdk-headless fmt cachyos-gaming-meta bpftune-git brave-bin
-    btop ardour ananicy-cpp adwaita-fonts openai-codex
-  )
+  # Load extra package list from package helper if available
+  local pkgs=()
+  if declare -f packages_extra >/dev/null 2>&1; then
+    mapfile -t pkgs < <(packages_extra)
+  else
+    pkgs=(zsh-syntax-highlighting zsh-autosuggestions zsh-completions mise zoxide starship eza github-cli vim unzip zed opencode-bin ttf-jetbrains-mono-nerd ttf-zed-mono-nerd otf-geist-mono-nerd stremio re2c gd pipes-rs pfetch-rs-bin ghostty brave-bin flatpak fastfetch easyeffects lsp-plugins-lv2 lsp-plugins-vst3 zam-plugins-lv2 mda.lv2 cachyos-hello cachyos-settings cairo calf docker pango lib32-pango lazygit lazydocker ladspa gemini-cli jre21-openjdk-headless fmt cachyos-gaming-meta bpftune-git brave-bin btop ardour ananicy-cpp adwaita-fonts openai-codex)
+    warn "packages_extra() not found; falling back to embedded list."
+  fi
 
   info "Installing packages: ${pkgs[*]}"
   yay -S --needed --noconfirm "${pkgs[@]}"
