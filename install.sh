@@ -368,14 +368,14 @@ step_6_install_packages() {
   # Packages requested by the user
   local pkgs=(
     zsh-syntax-highlighting zsh-autosuggestions zsh-completions
-    mise zoxide starship eza github-cli vim unzip zed
+    mise zoxide starship eza github-cli vim unzip zed opencode-bin
     ttf-jetbrains-mono-nerd ttf-zed-mono-nerd otf-geist-mono-nerd
-    stremio re2c gd pipes-rs pfetch-rs-bin ghostty
+    stremio re2c gd pipes-rs pfetch-rs-bin ghostty brave-bin
     flatpak fastfetch easyeffects lsp-plugins-lv2 lsp-plugins-vst3
     zam-plugins-lv2 mda.lv2 cachyos-hello cachyos-settings cairo calf
-    docker pango lib32-pango lazygit lazydocker ladspa
+    docker pango lib32-pango lazygit lazydocker ladspa gemini-cli
     jre21-openjdk-headless fmt cachyos-gaming-meta bpftune-git brave-bin
-    btop ardour ananicy-cpp adwaita-fonts
+    btop ardour ananicy-cpp adwaita-fonts openai-codex
   )
 
   info "Installing packages: ${pkgs[*]}"
