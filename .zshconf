@@ -4,6 +4,8 @@ zstyle ':omz:plugins:eza' 'dirs-first' yes
 zstyle ':omz:plugins:eza' 'dirs-first' yes
 zstyle ':omz:plugins:eza' 'header' yes
 zstyle ':omz:plugins:eza' 'icons' yes
+export ZOXIDE_CMD_OVERRIDE="cd"
+setopt autocd
 
 plugins=(git eza archlinux fzf gh git gitfast mise starship sudo zoxide)
 

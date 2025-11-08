@@ -54,6 +54,7 @@ github-cli
 vim
 unzip
 zed
+opentabletdriver
 opencode-bin
 ttf-jetbrains-mono-nerd
 ttf-zed-mono-nerd

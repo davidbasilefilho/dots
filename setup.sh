@@ -55,11 +55,24 @@ require_sudo() {
 
 enable_service() {
   local unit="$1"
-  if systemctl list-unit-files | grep -q "^${unit}\b"; then
-    info "Enabling and starting ${unit}"
-    sudo systemctl enable --now "$unit" || warn "Failed to enable ${unit} (continuing)"
+  local user="${2:-}"
+
+  # Treat common truthy indicators ("--user", "true", "user") as a request to
+  # enable the unit for the current user without using sudo.
+  if [ "$user" = "--user" ] || [ "$user" = "true" ] || [ "$user" = "user" ]; then
+    if systemctl --user list-unit-files | grep -q "^${unit}\\b"; then
+      info "Enabling and starting ${unit} for the current user"
+      systemctl --user enable --now "$unit" || warn "Failed to enable ${unit} (continuing)"
+    else
+      warn "User systemd unit ${unit} not found; skipping"
+    fi
   else
-    warn "Systemd unit ${unit} not found; skipping"
+    if systemctl list-unit-files | grep -q "^${unit}\\b"; then
+      info "Enabling and starting ${unit}"
+      sudo systemctl enable --now "$unit" || warn "Failed to enable ${unit} (continuing)"
+    else
+      warn "Systemd unit ${unit} not found; skipping"
+    fi
   fi
 }
 
@@ -533,6 +546,7 @@ step_5_install_packages() {
   yay -S --needed --noconfirm "${pkgs[@]}"
 
   enable_service "docker.service"
+  enable_service "opentabletdriver.service" "--user"
 }
 
 step_6_deploy_dotfiles() {

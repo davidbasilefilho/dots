@@ -3,6 +3,7 @@
     "context7": {
       "command": "bunx",
       "args": [
+        "--bun",
         "@upstash/context7-mcp"
       ]
     },
@@ -27,9 +28,17 @@
         "mcp-server-git"
       ]
     },
+    "sequential-thinking": {
+      "command": "bunx",
+      "args": [
+        "--bun",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
+    },
     "memory": {
       "command": "bunx",
       "args": [
+        "--bun",
         "@modelcontextprotocol/server-memory"
       ]
     }
