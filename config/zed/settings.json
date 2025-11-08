@@ -18,7 +18,10 @@
     "context7": {
       "source": "custom",
       "command": "bunx",
-      "args": ["--bun","@upstash/context7-mcp"]
+      "args": [
+        "--bun",
+        "@upstash/context7-mcp"
+      ]
     },
     "serena": {
       "source": "custom",
@@ -27,28 +30,41 @@
         "--from",
         "git+https://github.com/oraios/serena",
         "serena",
-        "start-mcp-server"
+        "start-mcp-server",
+        "--enable-web-dashboard",
+        "false"
       ]
     },
     "sequential-thinking": {
       "source": "custom",
       "command": "bunx",
-      "args": ["--bun","@modelcontextprotocol/server-sequential-thinking"]
+      "args": [
+        "--bun",
+        "@modelcontextprotocol/server-sequential-thinking"
+      ]
     },
     "memory": {
       "source": "custom",
       "command": "bunx",
-      "args": ["-bun","@modelcontextprotocol/server-memory"]
+      "args": [
+        "-bun",
+        "@modelcontextprotocol/server-memory"
+      ]
     },
-    "mcp-server-git": {
+    "git": {
       "source": "custom",
       "command": "bunx",
-      "args": ["--bun","mcp-server-git"]
+      "args": [
+        "--bun",
+        "mcp-server-git"
+      ]
     },
     "fetch": {
       "source": "custom",
       "command": "uvx",
-      "args": ["mcp-server-fetch"]
+      "args": [
+        "mcp-server-fetch"
+      ]
     }
   },
   "disable_ai": false,
